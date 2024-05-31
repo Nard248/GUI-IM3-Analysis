@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, Listbox, MULTIPLE
+from threading import Thread
 import os
 import numpy as np
 import glob
@@ -85,7 +86,7 @@ class IM3AnalyzerGUI(tk.Tk):
         self.dir_entry = tk.Entry(self.directory_frame, width=50)
         self.dir_entry.pack(side=tk.LEFT, padx=10)
 
-        self.load_button = tk.Button(self.directory_frame, text="Load", command=self.load_directory)
+        self.load_button = tk.Button(self.directory_frame, text="Load", command=self.start_load_directory)
         self.load_button.pack(side=tk.LEFT)
 
         self.files_frame = tk.Frame(self)
@@ -100,12 +101,21 @@ class IM3AnalyzerGUI(tk.Tk):
         self.save_button = tk.Button(self.files_frame, text="Save", command=self.save_image)
         self.save_button.pack(side=tk.LEFT, padx=10)
 
+        self.loading_label = tk.Label(self.files_frame, text="", fg="red")
+        self.loading_label.pack(side=tk.LEFT, padx=10)
+
         self.display_frame = tk.Frame(self)
         self.display_frame.pack(pady=10)
 
         self.figure, self.ax = plt.subplots(figsize=(6, 4))
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.display_frame)
         self.canvas.get_tk_widget().pack()
+
+    def start_load_directory(self):
+        self.loading_label.config(text="Loading...")
+        self.update_idletasks()  # Ensure the GUI updates before starting the loading process
+        self.files_listbox.delete(0, tk.END)
+        Thread(target=self.load_directory).start()
 
     def load_directory(self):
         directory = filedialog.askdirectory()
@@ -116,6 +126,7 @@ class IM3AnalyzerGUI(tk.Tk):
             self.files_listbox.delete(0, tk.END)
             for filename in self.cubes.keys():
                 self.files_listbox.insert(tk.END, filename)
+        self.loading_label.config(text="")
 
     def display_rgb_image(self):
         selected_files = [self.files_listbox.get(idx) for idx in self.files_listbox.curselection()]
