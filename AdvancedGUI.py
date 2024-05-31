@@ -138,6 +138,13 @@ class IM3AnalyzerGUI(tk.Tk):
         self.save_button = tk.Button(self.button_panel, text="Save", command=self.save_image)
         self.save_button.pack(side=tk.LEFT, padx=10, pady=5)
 
+        self.display_selection_button = tk.Button(self.button_panel, text="Display Selection",
+                                                  command=self.display_selection)
+        self.display_selection_button.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.save_selection_button = tk.Button(self.button_panel, text="Save Selection", command=self.save_selection)
+        self.save_selection_button.pack(side=tk.LEFT, padx=10, pady=5)
+
         # Bind mouse events to the image canvas for zoom, panning, and selection
         self.image_canvas.bind("<MouseWheel>", self.zoom)
         self.image_canvas.bind("<ButtonPress-1>", self.start_pan)
@@ -158,6 +165,7 @@ class IM3AnalyzerGUI(tk.Tk):
 
         self.image_width = 0
         self.image_height = 0
+        self.selected_region_image = None
 
     def start_load_directory(self):
         self.clear_checkbuttons()
@@ -203,15 +211,25 @@ class IM3AnalyzerGUI(tk.Tk):
 
         self.show_image(rgb_image)
 
-    def show_image(self, rgb_image):
+    def show_image(self, image_data):
         self.zoom_level = 1.0
-        self.img = Image.fromarray(rgb_image)
+        if isinstance(image_data, np.ndarray):
+            self.img = Image.fromarray(image_data)
+        else:
+            self.img = image_data
         self.tk_image = ImageTk.PhotoImage(self.img)
         self.image_id = self.image_canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
         self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
         self.image_width, self.image_height = self.img.size
+        # Center image in canvas
+        self.image_canvas.xview_moveto(0)
+        self.image_canvas.yview_moveto(0)
 
     def zoom(self, event):
+        if self.selection_rect:
+            self.image_canvas.delete(self.selection_rect)
+            self.selection_rect = None
+
         if event.delta > 0:
             self.zoom_level *= 1.1
         else:
@@ -220,16 +238,12 @@ class IM3AnalyzerGUI(tk.Tk):
         # Resize image
         width, height = self.img.size
         new_width, new_height = int(width * self.zoom_level), int(height * self.zoom_level)
-        resized_img = self.img.resize((new_width, new_height), Image.ANTIALIAS)
+        resized_img = self.img.resize((new_width, new_height), Image.LANCZOS)
 
         self.tk_image = ImageTk.PhotoImage(resized_img)
         self.image_canvas.itemconfig(self.image_id, image=self.tk_image)
         self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
         self.image_width, self.image_height = resized_img.size
-
-        # Adjust selection rectangle based on zoom level
-        if self.selection_rect:
-            self.update_selection_rectangle()
 
     def start_pan(self, event):
         self.image_canvas.scan_mark(event.x, event.y)
@@ -276,12 +290,34 @@ class IM3AnalyzerGUI(tk.Tk):
         canvas_y = y * self.zoom_level
         return canvas_x, canvas_y
 
-    def update_selection_rectangle(self):
+    def display_selection(self):
+        if not self.selection_rect:
+            messagebox.showwarning("No selection", "Please select a region of interest before displaying.")
+            return
+
         start_x_image, start_y_image = self.canvas_to_image_coords(self.start_x, self.start_y)
         end_x_image, end_y_image = self.canvas_to_image_coords(self.end_x, self.end_y)
-        self.start_x, self.start_y = self.image_to_canvas_coords(start_x_image, start_y_image)
-        self.end_x, self.end_y = self.image_to_canvas_coords(end_x_image, end_y_image)
-        self.image_canvas.coords(self.selection_rect, self.start_x, self.start_y, self.end_x, self.end_y)
+
+        if start_x_image > end_x_image:
+            start_x_image, end_x_image = end_x_image, start_x_image
+        if start_y_image > end_y_image:
+            start_y_image, end_y_image = end_y_image, start_y_image
+
+        self.selected_region_image = self.img.crop((start_x_image, start_y_image, end_x_image, end_y_image))
+        self.show_image(self.selected_region_image)
+
+    def save_selection(self):
+        if not self.selection_rect or self.selected_region_image is None:
+            messagebox.showwarning("No selection", "Please select a region of interest before saving.")
+            return
+
+        save_filename = "_".join([os.path.splitext(file)[0] for file in self.current_selected_files]) + "_cropped.png"
+        save_path = filedialog.asksaveasfilename(defaultextension=".png", initialfile=save_filename,
+                                                 filetypes=[("PNG files", "*.png")])
+
+        if save_path:
+            self.selected_region_image.save(save_path)
+            messagebox.showinfo("Image Saved", f"Selected region saved as {save_path}")
 
     def save_image(self):
         if self.current_rgb_image is None or self.current_selected_files is None:
