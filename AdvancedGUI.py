@@ -1,12 +1,11 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, Listbox, MULTIPLE
+from tkinter import filedialog, messagebox, Canvas, Frame, Scrollbar
 from threading import Thread
 import os
 import numpy as np
 import glob
 import imageio
 import imagej
-import spectral as spy
 from PIL import Image, ImageTk
 
 # Initialize ImageJ
@@ -70,52 +69,82 @@ class IM3AnalyzerGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("IM3 Analyzer")
-        self.geometry("1000x600")
+        self.geometry("1000x700")  # Increased height to accommodate the thick part
 
         self.cubes = {}
         self.current_rgb_image = None
         self.current_selected_files = None
+        self.check_vars = {}
 
-        self.directory_frame = tk.Frame(self)
+        self.main_frame = tk.Frame(self)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.files_panel = tk.Frame(self.main_frame, width=150, bd=2, relief="solid", bg="lightgray")
+        self.files_panel.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+
+        self.directory_frame = tk.Frame(self.files_panel, bg="lightgray")
         self.directory_frame.pack(pady=10)
 
-        self.dir_label = tk.Label(self.directory_frame, text="IM3 Files Directory:")
+        self.dir_label = tk.Label(self.directory_frame, text="IM3 Files Directory:", bg="lightgray")
         self.dir_label.pack(side=tk.LEFT)
 
-        self.dir_entry = tk.Entry(self.directory_frame, width=50)
+        self.dir_entry = tk.Entry(self.directory_frame, width=30)
         self.dir_entry.pack(side=tk.LEFT, padx=10)
 
         self.load_button = tk.Button(self.directory_frame, text="Load", command=self.start_load_directory)
         self.load_button.pack(side=tk.LEFT)
 
-        self.main_frame = tk.Frame(self)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        self.files_frame = tk.Frame(self.files_panel, bg="lightgray")
+        self.files_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.files_frame = tk.Frame(self.main_frame)
-        self.files_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+        # Create a canvas with a scrollbar
+        self.canvas = Canvas(self.files_frame, bg="lightgray")
+        self.scrollbar = Scrollbar(self.files_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = Frame(self.canvas, bg="lightgray")
 
-        self.files_listbox = Listbox(self.files_frame, selectmode=MULTIPLE, width=30, height=25)
-        self.files_listbox.pack(side=tk.TOP, padx=10, pady=10)
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
 
-        self.display_button = tk.Button(self.files_frame, text="Display", command=self.display_rgb_image)
-        self.display_button.pack(side=tk.TOP, padx=10, pady=5)
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.save_button = tk.Button(self.files_frame, text="Save", command=self.save_image)
-        self.save_button.pack(side=tk.TOP, padx=10, pady=5)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
 
-        self.loading_label = tk.Label(self.files_frame, text="", fg="red")
-        self.loading_label.pack(side=tk.TOP, padx=10, pady=5)
+        self.display_panel = tk.Frame(self.main_frame, bd=2, relief="solid", bg="white")
+        self.display_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.display_frame = tk.Frame(self.main_frame)
-        self.display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.image_canvas = Canvas(self.display_panel, bg="white")
+        self.image_canvas.pack(fill=tk.BOTH, expand=True)
 
-        self.image_label = tk.Label(self.display_frame)
-        self.image_label.pack(fill=tk.BOTH, expand=True)
+        # Bottom part of the display panel for buttons
+        self.button_panel = tk.Frame(self.display_panel, height=50, bg="lightgray")
+        self.button_panel.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+
+        self.display_button = tk.Button(self.button_panel, text="Display", command=self.display_rgb_image)
+        self.display_button.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.save_button = tk.Button(self.button_panel, text="Save", command=self.save_image)
+        self.save_button.pack(side=tk.LEFT, padx=10, pady=5)
+
+        # Bind mouse events to the image canvas for zoom and panning
+        self.image_canvas.bind("<MouseWheel>", self.zoom)
+        self.image_canvas.bind("<ButtonPress-1>", self.start_pan)
+        self.image_canvas.bind("<B1-Motion>", self.do_pan)
+
+        self.zoom_level = 1.0
+        self.pan_start_x = 0
+        self.pan_start_y = 0
 
     def start_load_directory(self):
-        self.loading_label.config(text="Loading...")
+        self.clear_checkbuttons()
+        self.loading_label = tk.Label(self.files_panel, text="Loading...", fg="red", bg="lightgray")
+        self.loading_label.pack(side=tk.TOP, padx=10, pady=5)
         self.update_idletasks()  # Ensure the GUI updates before starting the loading process
-        self.files_listbox.delete(0, tk.END)
         Thread(target=self.load_directory).start()
 
     def load_directory(self):
@@ -124,13 +153,25 @@ class IM3AnalyzerGUI(tk.Tk):
             self.dir_entry.delete(0, tk.END)
             self.dir_entry.insert(0, directory)
             self.cubes = load_cubes_im3(directory)
-            self.files_listbox.delete(0, tk.END)
-            for filename in self.cubes.keys():
-                self.files_listbox.insert(tk.END, filename)
-        self.loading_label.config(text="")
+            self.create_checkbuttons()
+        self.loading_label.destroy()
+
+    def create_checkbuttons(self):
+        self.clear_checkbuttons()
+        for filename in self.cubes.keys():
+            var = tk.IntVar()
+            checkbutton = tk.Checkbutton(self.scrollable_frame, text=filename, variable=var, bg="lightgray",
+                                         font=("Helvetica", 12))
+            checkbutton.pack(anchor='w', pady=2)
+            self.check_vars[filename] = var
+
+    def clear_checkbuttons(self):
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+        self.check_vars.clear()
 
     def display_rgb_image(self):
-        selected_files = [self.files_listbox.get(idx) for idx in self.files_listbox.curselection()]
+        selected_files = [filename for filename, var in self.check_vars.items() if var.get() == 1]
         if not selected_files:
             messagebox.showwarning("No files selected", "Please select one or more files to display.")
             return
@@ -144,10 +185,32 @@ class IM3AnalyzerGUI(tk.Tk):
         self.show_image(rgb_image)
 
     def show_image(self, rgb_image):
-        img = Image.fromarray(rgb_image)
-        imgtk = ImageTk.PhotoImage(image=img)
-        self.image_label.config(image=imgtk)
-        self.image_label.image = imgtk
+        self.zoom_level = 1.0
+        self.img = Image.fromarray(rgb_image)
+        self.tk_image = ImageTk.PhotoImage(self.img)
+        self.image_id = self.image_canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
+        self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
+
+    def zoom(self, event):
+        if event.delta > 0:
+            self.zoom_level *= 1.1
+        else:
+            self.zoom_level /= 1.1
+
+        # Resize image
+        width, height = self.img.size
+        new_width, new_height = int(width * self.zoom_level), int(height * self.zoom_level)
+        resized_img = self.img.resize((new_width, new_height), Image.ANTIALIAS)
+
+        self.tk_image = ImageTk.PhotoImage(resized_img)
+        self.image_canvas.itemconfig(self.image_id, image=self.tk_image)
+        self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
+
+    def start_pan(self, event):
+        self.image_canvas.scan_mark(event.x, event.y)
+
+    def do_pan(self, event):
+        self.image_canvas.scan_dragto(event.x, event.y, gain=1)
 
     def save_image(self):
         if self.current_rgb_image is None or self.current_selected_files is None:
