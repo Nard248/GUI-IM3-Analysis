@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, Canvas, Frame, Scrollbar
+from tkinter import filedialog, messagebox, Canvas, Frame, Scrollbar, Label
 from threading import Thread
 import os
 import numpy as np
@@ -115,6 +115,13 @@ class IM3AnalyzerGUI(tk.Tk):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
+        # Frame for coordinates
+        self.coordinates_frame = tk.Frame(self.main_frame, bg="lightgray")
+        self.coordinates_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
+
+        self.coordinates_label = tk.Label(self.coordinates_frame, text="Coordinates: ", bg="lightgray")
+        self.coordinates_label.pack(side=tk.LEFT, padx=10)
+
         self.display_panel = tk.Frame(self.main_frame, bd=2, relief="solid", bg="white")
         self.display_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -131,14 +138,26 @@ class IM3AnalyzerGUI(tk.Tk):
         self.save_button = tk.Button(self.button_panel, text="Save", command=self.save_image)
         self.save_button.pack(side=tk.LEFT, padx=10, pady=5)
 
-        # Bind mouse events to the image canvas for zoom and panning
+        # Bind mouse events to the image canvas for zoom, panning, and selection
         self.image_canvas.bind("<MouseWheel>", self.zoom)
         self.image_canvas.bind("<ButtonPress-1>", self.start_pan)
         self.image_canvas.bind("<B1-Motion>", self.do_pan)
+        self.image_canvas.bind("<ButtonPress-3>", self.start_selection)
+        self.image_canvas.bind("<B3-Motion>", self.update_selection)
+        self.image_canvas.bind("<ButtonRelease-3>", self.finalize_selection)
 
         self.zoom_level = 1.0
         self.pan_start_x = 0
         self.pan_start_y = 0
+
+        self.selection_rect = None
+        self.start_x = 0
+        self.start_y = 0
+        self.end_x = 0
+        self.end_y = 0
+
+        self.image_width = 0
+        self.image_height = 0
 
     def start_load_directory(self):
         self.clear_checkbuttons()
@@ -190,6 +209,7 @@ class IM3AnalyzerGUI(tk.Tk):
         self.tk_image = ImageTk.PhotoImage(self.img)
         self.image_id = self.image_canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
         self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
+        self.image_width, self.image_height = self.img.size
 
     def zoom(self, event):
         if event.delta > 0:
@@ -205,12 +225,63 @@ class IM3AnalyzerGUI(tk.Tk):
         self.tk_image = ImageTk.PhotoImage(resized_img)
         self.image_canvas.itemconfig(self.image_id, image=self.tk_image)
         self.image_canvas.config(scrollregion=self.image_canvas.bbox(self.image_id))
+        self.image_width, self.image_height = resized_img.size
+
+        # Adjust selection rectangle based on zoom level
+        if self.selection_rect:
+            self.update_selection_rectangle()
 
     def start_pan(self, event):
         self.image_canvas.scan_mark(event.x, event.y)
 
     def do_pan(self, event):
         self.image_canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def start_selection(self, event):
+        if self.selection_rect:
+            self.image_canvas.delete(self.selection_rect)
+        self.start_x, self.start_y = self.bound_coordinates(event.x, event.y)
+        self.selection_rect = self.image_canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y,
+                                                                 outline='red')
+
+    def update_selection(self, event):
+        self.end_x, self.end_y = self.bound_coordinates(event.x, event.y)
+        self.image_canvas.coords(self.selection_rect, self.start_x, self.start_y, self.end_x, self.end_y)
+        self.update_coordinates()
+
+    def finalize_selection(self, event):
+        self.end_x, self.end_y = self.bound_coordinates(event.x, event.y)
+        self.update_coordinates()
+
+    def update_coordinates(self):
+        start_x_image, start_y_image = self.canvas_to_image_coords(self.start_x, self.start_y)
+        end_x_image, end_y_image = self.canvas_to_image_coords(self.end_x, self.end_y)
+        self.coordinates_label.config(
+            text=f"Coordinates: ({start_x_image}, {start_y_image}) to ({end_x_image}, {end_y_image})")
+
+    def bound_coordinates(self, x, y):
+        x = max(0, min(x, self.image_width))
+        y = max(0, min(y, self.image_height))
+        return x, y
+
+    def canvas_to_image_coords(self, x, y):
+        canvas_x = self.image_canvas.canvasx(x)
+        canvas_y = self.image_canvas.canvasy(y)
+        image_x = int(canvas_x / self.zoom_level)
+        image_y = int(canvas_y / self.zoom_level)
+        return image_x, image_y
+
+    def image_to_canvas_coords(self, x, y):
+        canvas_x = x * self.zoom_level
+        canvas_y = y * self.zoom_level
+        return canvas_x, canvas_y
+
+    def update_selection_rectangle(self):
+        start_x_image, start_y_image = self.canvas_to_image_coords(self.start_x, self.start_y)
+        end_x_image, end_y_image = self.canvas_to_image_coords(self.end_x, self.end_y)
+        self.start_x, self.start_y = self.image_to_canvas_coords(start_x_image, start_y_image)
+        self.end_x, self.end_y = self.image_to_canvas_coords(end_x_image, end_y_image)
+        self.image_canvas.coords(self.selection_rect, self.start_x, self.start_y, self.end_x, self.end_y)
 
     def save_image(self):
         if self.current_rgb_image is None or self.current_selected_files is None:
