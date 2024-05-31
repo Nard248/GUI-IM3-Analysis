@@ -7,8 +7,7 @@ import glob
 import imageio
 import imagej
 import spectral as spy
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from PIL import Image, ImageTk
 
 # Initialize ImageJ
 ij = imagej.init('sc.fiji:fiji')
@@ -71,7 +70,7 @@ class IM3AnalyzerGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("IM3 Analyzer")
-        self.geometry("800x600")
+        self.geometry("1000x600")
 
         self.cubes = {}
         self.current_rgb_image = None
@@ -89,27 +88,29 @@ class IM3AnalyzerGUI(tk.Tk):
         self.load_button = tk.Button(self.directory_frame, text="Load", command=self.start_load_directory)
         self.load_button.pack(side=tk.LEFT)
 
-        self.files_frame = tk.Frame(self)
-        self.files_frame.pack(pady=10)
+        self.main_frame = tk.Frame(self)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.files_listbox = Listbox(self.files_frame, selectmode=MULTIPLE, width=50, height=15)
-        self.files_listbox.pack(side=tk.LEFT, padx=10)
+        self.files_frame = tk.Frame(self.main_frame)
+        self.files_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+
+        self.files_listbox = Listbox(self.files_frame, selectmode=MULTIPLE, width=30, height=25)
+        self.files_listbox.pack(side=tk.TOP, padx=10, pady=10)
 
         self.display_button = tk.Button(self.files_frame, text="Display", command=self.display_rgb_image)
-        self.display_button.pack(side=tk.LEFT, padx=10)
+        self.display_button.pack(side=tk.TOP, padx=10, pady=5)
 
         self.save_button = tk.Button(self.files_frame, text="Save", command=self.save_image)
-        self.save_button.pack(side=tk.LEFT, padx=10)
+        self.save_button.pack(side=tk.TOP, padx=10, pady=5)
 
         self.loading_label = tk.Label(self.files_frame, text="", fg="red")
-        self.loading_label.pack(side=tk.LEFT, padx=10)
+        self.loading_label.pack(side=tk.TOP, padx=10, pady=5)
 
-        self.display_frame = tk.Frame(self)
-        self.display_frame.pack(pady=10)
+        self.display_frame = tk.Frame(self.main_frame)
+        self.display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.figure, self.ax = plt.subplots(figsize=(6, 4))
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.display_frame)
-        self.canvas.get_tk_widget().pack()
+        self.image_label = tk.Label(self.display_frame)
+        self.image_label.pack(fill=tk.BOTH, expand=True)
 
     def start_load_directory(self):
         self.loading_label.config(text="Loading...")
@@ -140,9 +141,13 @@ class IM3AnalyzerGUI(tk.Tk):
         self.current_rgb_image = rgb_image
         self.current_selected_files = selected_files
 
-        self.ax.clear()
-        self.ax.imshow(rgb_image)
-        self.canvas.draw()
+        self.show_image(rgb_image)
+
+    def show_image(self, rgb_image):
+        img = Image.fromarray(rgb_image)
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.image_label.config(image=imgtk)
+        self.image_label.image = imgtk
 
     def save_image(self):
         if self.current_rgb_image is None or self.current_selected_files is None:
