@@ -73,6 +73,8 @@ class IM3AnalyzerGUI(tk.Tk):
         self.geometry("800x600")
 
         self.cubes = {}
+        self.current_rgb_image = None
+        self.current_selected_files = None
 
         self.directory_frame = tk.Frame(self)
         self.directory_frame.pack(pady=10)
@@ -94,6 +96,9 @@ class IM3AnalyzerGUI(tk.Tk):
 
         self.display_button = tk.Button(self.files_frame, text="Display", command=self.display_rgb_image)
         self.display_button.pack(side=tk.LEFT, padx=10)
+
+        self.save_button = tk.Button(self.files_frame, text="Save", command=self.save_image)
+        self.save_button.pack(side=tk.LEFT, padx=10)
 
         self.display_frame = tk.Frame(self)
         self.display_frame.pack(pady=10)
@@ -121,9 +126,25 @@ class IM3AnalyzerGUI(tk.Tk):
         selected_cubes = [self.cubes[file]['data'] for file in selected_files]
         rgb_image = combine_cubes_to_rgb(selected_cubes)
 
+        self.current_rgb_image = rgb_image
+        self.current_selected_files = selected_files
+
         self.ax.clear()
         self.ax.imshow(rgb_image)
         self.canvas.draw()
+
+    def save_image(self):
+        if self.current_rgb_image is None or self.current_selected_files is None:
+            messagebox.showwarning("No image to save", "Please display an image before saving.")
+            return
+
+        save_filename = "_".join([os.path.splitext(file)[0] for file in self.current_selected_files]) + ".png"
+        save_path = filedialog.asksaveasfilename(defaultextension=".png", initialfile=save_filename,
+                                                 filetypes=[("PNG files", "*.png")])
+
+        if save_path:
+            imageio.imwrite(save_path, self.current_rgb_image)
+            messagebox.showinfo("Image Saved", f"Image saved as {save_path}")
 
 
 if __name__ == "__main__":
